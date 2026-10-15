@@ -213,7 +213,7 @@ export function getStoredApiConfig(): ApiConfig {
   }
   return {
     useLiveBackend: false,
-    endpointUrl: '/api/lta/v1/bus-arrivals',
+    endpointUrl: '/api/busarrival',
     apiKey: '',
     autoRefreshIntervalSeconds: 20,
   };

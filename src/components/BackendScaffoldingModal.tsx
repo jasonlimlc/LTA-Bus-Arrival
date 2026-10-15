@@ -21,65 +21,73 @@ export const BackendScaffoldingModal: React.FC<BackendScaffoldingModalProps> = (
     if (onConfigUpdated) onConfigUpdated();
   };
 
+  const [healthStatus, setHealthStatus] = useState<any>(null);
+
+  const handleTestHealth = async () => {
+    try {
+      const res = await fetch('/api/health');
+      const data = await res.json();
+      setHealthStatus(data);
+    } catch (err: any) {
+      setHealthStatus({ status: 'error', error: err.message });
+    }
+  };
+
   const handleTestConnection = async () => {
     setTestStatus('testing');
-    setTestMessage('Sending test request to ' + config.endpointUrl + '?BusStopCode=09048...');
+    setTestMessage('Sending test request to ' + config.endpointUrl + '?BusStopCode=83139...');
 
     try {
       const url = new URL(config.endpointUrl, window.location.origin);
-      url.searchParams.set('BusStopCode', '09048');
+      url.searchParams.set('BusStopCode', '83139');
 
       const headers: Record<string, string> = { Accept: 'application/json' };
       if (config.apiKey) headers['AccountKey'] = config.apiKey;
 
       const res = await fetch(url.toString(), { headers });
+      const json = await res.json();
+
       if (!res.ok) {
-        throw new Error(`Endpoint returned status ${res.status}: ${res.statusText}`);
+        throw new Error(json.message || json.error || `Endpoint returned status ${res.status}: ${res.statusText}`);
       }
 
-      const json = await res.json();
       if (json && (json.Services || json.BusStopCode)) {
         setTestStatus('success');
-        setTestMessage(`Success! Received valid LTA DataMall format with ${json.Services?.length ?? 0} bus services.`);
+        setTestMessage(`Success! Received valid LTA DataMall v3 format with ${json.Services?.length ?? 0} bus services for BusStopCode 83139.`);
       } else {
         setTestStatus('success');
-        setTestMessage('Response received (status 200), though schema differed slightly from standard LTA DataMall.');
+        setTestMessage('Response received (status 200).');
       }
     } catch (err: any) {
       setTestStatus('error');
-      setTestMessage(err.message || 'Unable to connect to endpoint. Please check if your server is running.');
+      setTestMessage(err.message || 'Unable to connect to endpoint.');
     }
   };
 
-  const SAMPLE_EXPRESS_CODE = `// server.js (Express LTA DataMall v2 Proxy)
-import express from 'express';
-import fetch from 'node-fetch';
+  const SAMPLE_EXPRESS_CODE = `// /api/busarrival.ts
+// GET /api/busarrival?BusStopCode=83139
+import type { Request, Response } from 'express';
 
-const app = express();
-const LTA_API_KEY = process.env.LTA_DATAMALL_KEY || 'YOUR_LTA_KEY_HERE';
+const LTA_URL = 'https://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival';
 
-app.get('/api/lta/v1/bus-arrivals', async (req, res) => {
-  const { BusStopCode } = req.query;
-  if (!BusStopCode) return res.status(400).json({ error: 'Missing BusStopCode' });
+export default async function handler(req: Request, res: Response) {
+  const busStopCode = req.query.BusStopCode as string;
+  const accountKey = process.env.LTA_ACCOUNT_KEY || req.headers['accountkey'];
 
-  try {
-    const response = await fetch(
-      \`http://datamall2.mytransport.sg/ltaodataservice/v3/BusArrival?BusStopCode=\${BusStopCode}\`,
-      {
-        headers: {
-          AccountKey: LTA_API_KEY,
-          accept: 'application/json',
-        },
-      }
-    );
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  if (!accountKey) {
+    return res.status(401).json({ error: 'LTA_ACCOUNT_KEY environment variable is not configured' });
   }
-});
 
-app.listen(3001, () => console.log('LTA Proxy listening on port 3001'));
+  const response = await fetch(\`\${LTA_URL}?BusStopCode=\${busStopCode}\`, {
+    headers: {
+      AccountKey: accountKey,
+      accept: 'application/json',
+    },
+  });
+
+  const data = await response.json();
+  res.json(data);
+}
 `;
 
   const copyToClipboard = () => {
@@ -203,7 +211,7 @@ app.listen(3001, () => console.log('LTA Proxy listening on port 3001'));
           </div>
         </div>
 
-        <div className="flex items-center gap-3 pt-2">
+        <div className="flex items-center gap-3 pt-2 flex-wrap">
           <button
             onClick={handleSave}
             className="px-4 py-2 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
@@ -217,9 +225,22 @@ app.listen(3001, () => console.log('LTA Proxy listening on port 3001'));
             className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${testStatus === 'testing' ? 'animate-spin' : ''}`} />
-            <span>Test Connection</span>
+            <span>Test /api/busarrival</span>
+          </button>
+
+          <button
+            onClick={handleTestHealth}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
+          >
+            <span>Check /api/health</span>
           </button>
         </div>
+
+        {healthStatus && (
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono">
+            <span className="font-bold text-slate-700">Health Probe:</span> {JSON.stringify(healthStatus)}
+          </div>
+        )}
 
         {testStatus !== 'idle' && (
           <div className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
